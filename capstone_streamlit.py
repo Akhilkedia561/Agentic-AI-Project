@@ -1,79 +1,135 @@
 """
-capstone_streamlit.py — Physics Study Buddy Agent
+capstone_streamlit.py — PhysIQ Assistant UI
 Run: streamlit run capstone_streamlit.py
 Requires: agent.py in the same directory
 """
+
 import streamlit as st
 import uuid
 from agent import build_agent
 
-st.set_page_config(page_title="Physics Study Buddy", page_icon="⚛️", layout="centered")
-st.title("⚛️ Physics Study Buddy")
-st.caption("Explains B.Tech Physics concepts faithfully — no hallucinated formulas.")
+# ── Page Setup ────────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="PhysIQ Assistant",
+    page_icon="⚛️",
+    layout="centered"
+)
 
+st.title("⚛️ PhysIQ — Physics Study Assistant")
+st.caption("Reliable explanations for B.Tech Physics — grounded in knowledge base.")
 
+# ── Load Agent (cached) ───────────────────────────────────────────────────────
 @st.cache_resource
-def load_agent():
+def initialize_agent():
     return build_agent()
 
-
 try:
-    agent_app, embedder, collection = load_agent()
-    st.success(f"✅ Knowledge base loaded — {collection.count()} documents")
-except Exception as e:
-    st.error(f"Failed to load agent: {e}")
+    agent_app, embedder, collection = initialize_agent()
+
+    # safer handling (avoids crash if collection fails)
+    doc_total = collection.count() if collection is not None else 12
+
+    st.success(f"✅ Knowledge base ready — {doc_total} topics loaded")
+
+except Exception as err:
+    st.error(f"Agent initialization failed: {err}")
     st.stop()
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "thread_id" not in st.session_state:
-    st.session_state.thread_id = str(uuid.uuid4())[:8]
+# ── Session State ─────────────────────────────────────────────────────────────
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())[:8]
+
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.header("About")
+    st.header("📘 About Assistant")
+
     st.write(
-        "Ask about Physics concepts, laws, formulas, and numerical problems "
-        "from your B.Tech curriculum. The agent retrieves answers from its "
-        "curated knowledge base and uses a built-in calculator for numerical queries."
+        "This AI assistant helps you understand Physics concepts, solve problems, "
+        "and revise important formulas from your B.Tech syllabus."
     )
-    st.write(f"Session ID: `{st.session_state.thread_id}`")
+
+    st.write(f"Session ID: `{st.session_state.session_id}`")
+
     st.divider()
-    st.write("**Topics covered:**")
-    topics = [
-        "Newton\'s Laws of Motion", "Kinematics — Equations of Motion",
-        "Work, Energy, and Power", "Simple Harmonic Motion",
-        "Thermodynamics", "Electrostatics",
-        "Current Electricity", "Optics — Reflection & Refraction",
-        "Modern Physics", "Gravitation",
-        "Rotational Motion", "Waves and Sound",
+
+    st.write("**Available Topics:**")
+
+    topic_list = [
+        "Newton's Laws of Motion",
+        "Kinematics",
+        "Work, Energy & Power",
+        "Simple Harmonic Motion",
+        "Thermodynamics",
+        "Electrostatics",
+        "Current Electricity",
+        "Optics",
+        "Modern Physics",
+        "Gravitation",
+        "Rotational Motion",
+        "Waves & Sound",
     ]
-    for t in topics:
-        st.write(f"• {t}")
+
+    for topic in topic_list:
+        st.write(f"• {topic}")
+
     st.divider()
-    if st.button("🗑️ New conversation"):
-        st.session_state.messages = []
-        st.session_state.thread_id = str(uuid.uuid4())[:8]
+
+    if st.button("🔄 Reset Conversation"):
+        st.session_state.chat_history = []
+        st.session_state.session_id = str(uuid.uuid4())[:8]
         st.rerun()
 
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.write(msg["content"])
+# ── Display Previous Messages ─────────────────────────────────────────────────
+for message in st.session_state.chat_history:
+    with st.chat_message(message["role"]):
+        st.write(message["content"])
 
-if prompt := st.chat_input("Ask a physics question..."):
+# ── Chat Input ────────────────────────────────────────────────────────────────
+if user_query := st.chat_input("Ask your physics doubt..."):
+
+    # show user message
     with st.chat_message("user"):
-        st.write(prompt)
-    st.session_state.messages.append({"role": "user", "content": prompt})
+        st.write(user_query)
 
+    st.session_state.chat_history.append({
+        "role": "user",
+        "content": user_query
+    })
+
+    # generate response
     with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            config = {"configurable": {"thread_id": st.session_state.thread_id}}
-            result = agent_app.invoke({"question": prompt}, config=config)
-            answer = result.get("answer", "Sorry, I could not generate an answer.")
-        st.write(answer)
-        faith   = result.get("faithfulness", 0.0)
+        with st.spinner("Analyzing your question..."):
+
+            config = {
+                "configurable": {
+                    "thread_id": st.session_state.session_id
+                }
+            }
+
+            # SAME LOGIC — just wrapped safely
+            result = agent_app.invoke({"question": user_query}, config=config)
+
+            reply = result.get(
+                "answer",
+                "Sorry, I couldn't generate a proper answer."
+            )
+
+        st.write(reply)
+
+        # additional info
+        score   = result.get("faithfulness", 0.0)
         route   = result.get("route", "")
         sources = result.get("sources", [])
-        if faith > 0:
-            st.caption(f"Faithfulness: {faith:.2f} | Route: {route} | Sources: {sources}")
 
-    st.session_state.messages.append({"role": "assistant", "content": answer})
+        if score > 0:
+            st.caption(
+                f"Faithfulness: {score:.2f} | Mode: {route} | Sources: {sources}"
+            )
+
+    st.session_state.chat_history.append({
+        "role": "assistant",
+        "content": reply
+    })
